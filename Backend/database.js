@@ -47,30 +47,39 @@ connection.on("error", (error) => {
 });
 
 // 🛑 Manejo de cierre graceful del proceso
-process.on('SIGINT', () => {
+process.on('SIGINT', async () => {
   console.log('🛑 SIGINT recibido. Cerrando aplicación...');
   
-  // Detener servicio de auto-actualización
-  if (autoUpdateService) {
-    autoUpdateService.stop();
-  }
-  
-  // Cerrar conexión a la base de datos
-  mongoose.connection.close(() => {
+  try {
+    // Detener servicio de auto-actualización
+    if (autoUpdateService) {
+      autoUpdateService.stop();
+    }
+    
+    // ✅ CORRECCIÓN: Cerrar conexión SIN callback
+    await mongoose.connection.close();
     console.log('✅ Conexión a MongoDB cerrada');
     process.exit(0);
-  });
+  } catch (error) {
+    console.error('❌ Error cerrando conexión:', error);
+    process.exit(1);
+  }
 });
 
-process.on('SIGTERM', () => {
+process.on('SIGTERM', async () => {
   console.log('🛑 SIGTERM recibido. Cerrando aplicación...');
   
-  if (autoUpdateService) {
-    autoUpdateService.stop();
-  }
-  
-  mongoose.connection.close(() => {
+  try {
+    if (autoUpdateService) {
+      autoUpdateService.stop();
+    }
+    
+    // ✅ CORRECCIÓN: Cerrar conexión SIN callback
+    await mongoose.connection.close();
     console.log('✅ Conexión a MongoDB cerrada');
     process.exit(0);
-  });
+  } catch (error) {
+    console.error('❌ Error cerrando conexión:', error);
+    process.exit(1);
+  }
 });
