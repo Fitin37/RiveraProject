@@ -185,7 +185,6 @@ ViajesController.getMapData = async (req, res) => {
         // ⏰ CALCULAR PROGRESO
         let progreso = viaje.tracking?.progreso?.porcentaje || 0;
         let ubicacionActual = "Terminal";
-       
         if (viaje.estado.actual === 'en_curso' || viaje.estado.actual === 'retrasado') {
           // Calcular progreso por tiempo si no existe
           if (progreso === 0) {
@@ -382,7 +381,6 @@ ViajesController.getMapData = async (req, res) => {
             progressMethod: viaje.tracking?.ubicacionActual ? 'gps' : 'time_based'
           }
         };
-
         // 📍 AGREGAR UBICACIONES AL MAPA
         [origen, destino].forEach(ubicacion => {
           if (ubicacion && ubicacion.nombre && ubicacion.coordenadas) {
@@ -541,7 +539,264 @@ ViajesController.getMapData = async (req, res) => {
     });
   }
 };
- 
+
+// =====================================================
+// 🆕 POST: AGREGAR NUEVO VIAJE
+// =====================================================
+ViajesController.addViaje = async (req, res) => {
+  try {
+    console.log("🚛 Creando nuevo viaje...");
+    
+    const {
+      quoteId,
+      truckId, 
+      conductorId,
+      tripDescription,
+      departureTime,
+      arrivalTime,
+      condiciones,
+      observaciones
+    } = req.body;
+
+    // 🔍 VALIDACIONES BÁSICAS
+    if (!quoteId || !truckId || !conductorId) {
+      return res.status(400).json({
+        success: false,
+        message: "Los campos quoteId, truckId y conductorId son obligatorios",
+        missingFields: {
+          quoteId: !quoteId,
+          truckId: !truckId,
+          conductorId: !conductorId
+        }
+      });
+    }
+
+    // 📅 VALIDACIONES DE FECHAS
+    if (!departureTime || !arrivalTime) {
+      return res.status(400).json({
+        success: false,
+        message: "Las fechas de salida y llegada son obligatorias"
+      });
+    }
+
+    const salidaDate = new Date(departureTime);
+    const llegadaDate = new Date(arrivalTime);
+    const ahora = new Date();
+
+    if (salidaDate >= llegadaDate) {
+      return res.status(400).json({
+        success: false,
+        message: "La fecha de salida debe ser anterior a la fecha de llegada"
+      });
+    }
+
+    // 🔍 VERIFICAR QUE EXISTAN LAS REFERENCIAS
+    const [cotizacion, camion, conductor] = await Promise.all([
+      mongoose.model('Cotizaciones').findById(quoteId),
+      mongoose.model('Camiones').findById(truckId),
+      mongoose.model('Motorista').findById(conductorId)
+    ]);
+
+    if (!cotizacion) {
+      return res.status(404).json({
+        success: false,
+        message: "Cotización no encontrada",
+        quoteId: quoteId
+      });
+    }
+
+    if (!camion) {
+      return res.status(404).json({
+        success: false,
+        message: "Camión no encontrado",
+        truckId: truckId
+      });
+    }
+
+    if (!conductor) {
+      return res.status(404).json({
+        success: false,
+        message: "Conductor no encontrado",
+        conductorId: conductorId
+      });
+    }
+
+    // 🚛 VERIFICAR DISPONIBILIDAD DEL CAMIÓN
+    const camionOcupado = await ViajesModel.findOne({
+      truckId: truckId,
+      'estado.actual': { $in: ['pendiente', 'en_curso'] },
+      $or: [
+        {
+          departureTime: { $lte: llegadaDate },
+          arrivalTime: { $gte: salidaDate }
+        }
+      ]
+    });
+
+    if (camionOcupado) {
+      return res.status(409).json({
+        success: false,
+        message: "El camión ya está asignado a otro viaje en esas fechas",
+        conflicto: {
+          viajeId: camionOcupado._id,
+          salida: camionOcupado.departureTime,
+          llegada: camionOcupado.arrivalTime
+        }
+      });
+    }
+
+    // 👤 VERIFICAR DISPONIBILIDAD DEL CONDUCTOR
+    const conductorOcupado = await ViajesModel.findOne({
+      conductorId: conductorId,
+      'estado.actual': { $in: ['pendiente', 'en_curso'] },
+      $or: [
+        {
+          departureTime: { $lte: llegadaDate },
+          arrivalTime: { $gte: salidaDate }
+        }
+      ]
+    });
+
+    if (conductorOcupado) {
+      return res.status(409).json({
+        success: false,
+        message: "El conductor ya está asignado a otro viaje en esas fechas",
+        conflicto: {
+          viajeId: conductorOcupado._id,
+          salida: conductorOcupado.departureTime,
+          llegada: conductorOcupado.arrivalTime
+        }
+      });
+    }
+
+    // 📝 CREAR DESCRIPCIÓN AUTO SI NO SE PROPORCIONA
+    const descripcionFinal = tripDescription || 
+      cotizacion.quoteDescription || 
+      `Viaje ${cotizacion.ruta?.origen?.nombre || 'Origen'} → ${cotizacion.ruta?.destino?.nombre || 'Destino'}`;
+
+    // 🆕 CREAR NUEVO VIAJE
+    const nuevoViaje = new ViajesModel({
+      quoteId: quoteId,
+      truckId: truckId,
+      conductorId: conductorId,
+      tripDescription: descripcionFinal,
+      departureTime: salidaDate,
+      arrivalTime: llegadaDate,
+
+      // 📊 ESTADO INICIAL
+      estado: {
+        actual: salidaDate <= ahora ? 'en_curso' : 'pendiente',
+        fechaCambio: new Date(),
+        autoActualizar: true,
+        historial: [{
+          estado: salidaDate <= ahora ? 'en_curso' : 'pendiente',
+          fecha: new Date(),
+          observacion: 'Viaje creado'
+        }]
+      },
+
+      // 📍 TRACKING INICIAL
+      tracking: {
+        progreso: {
+          porcentaje: 0,
+          ultimaActualizacion: new Date(),
+          calculoAutomatico: true
+        }
+      },
+
+      // ⏰ TIEMPOS REALES
+      tiemposReales: {
+        ultimaActualizacion: new Date(),
+        salidaReal: salidaDate <= ahora ? new Date() : null
+      },
+
+      // 💰 COSTOS INICIALES (desde cotización)
+      costosReales: {
+        combustible: cotizacion.costos?.combustible || 0,
+        peajes: cotizacion.costos?.peajes || 0,
+        conductor: cotizacion.costos?.conductor || 0,
+        otros: cotizacion.costos?.otros || 0,
+        total: cotizacion.costos?.total || 0
+      },
+
+      // 🌡️ CONDICIONES INICIALES
+      condiciones: {
+        clima: condiciones?.clima || 'normal',
+        trafico: condiciones?.trafico || 'normal',
+        carretera: condiciones?.carretera || 'buena',
+        observaciones: observaciones || ''
+      },
+
+      // 🚨 ALERTAS VACÍAS INICIALMENTE
+      alertas: []
+    });
+
+    // 💾 GUARDAR VIAJE
+    await nuevoViaje.save();
+
+    // 🔄 ACTUALIZAR ESTADO DE LA COTIZACIÓN
+    cotizacion.status = 'ejecutada';
+    await cotizacion.save();
+
+    // 📊 POBLAR DATOS PARA LA RESPUESTA
+    const viajeCompleto = await ViajesModel.findById(nuevoViaje._id)
+      .populate('truckId', 'brand model licensePlate name')
+      .populate('conductorId', 'name phone')
+      .populate({
+        path: 'quoteId',
+        select: 'quoteName quoteDescription price ruta carga horarios costos',
+        populate: {
+          path: 'clientId',
+          select: 'nombre name email telefono phone empresa'
+        }
+      });
+
+    console.log("✅ Viaje creado exitosamente:", nuevoViaje._id);
+
+    // 🎯 RESPUESTA EXITOSA
+    res.status(201).json({
+      success: true,
+      data: {
+        viaje: viajeCompleto,
+        mensaje: "Viaje creado exitosamente",
+        detalles: {
+          viajeId: nuevoViaje._id,
+          estado: nuevoViaje.estado.actual,
+          cotizacionActualizada: cotizacion.status,
+          camion: `${camion.brand || ''} ${camion.model || ''} (${camion.licensePlate || ''})`.trim(),
+          conductor: conductor.name || conductor.nombre,
+          salida: salidaDate.toLocaleString('es-ES'),
+          llegada: llegadaDate.toLocaleString('es-ES'),
+          duracionEstimada: Math.round((llegadaDate - salidaDate) / (1000 * 60 * 60)) + ' horas'
+        }
+      },
+      message: "Viaje agregado exitosamente al sistema"
+    });
+
+  } catch (error) {
+    console.error("❌ Error creando viaje:", error);
+    
+    // 🔄 ROLLBACK: Si hay error, asegurar que la cotización no se marque como ejecutada
+    if (req.body.quoteId) {
+      try {
+        await mongoose.model('Cotizaciones').findByIdAndUpdate(
+          req.body.quoteId,
+          { status: 'aceptada' }
+        );
+      } catch (rollbackError) {
+        console.error("❌ Error en rollback:", rollbackError);
+      }
+    }
+
+    res.status(500).json({
+      success: false,
+      message: "Error al crear el viaje",
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+};
+
 // =====================================================
 // GET: Análisis de distribución de cargas (VERSIÓN UNIFICADA)
 // =====================================================
@@ -821,7 +1076,7 @@ ViajesController.getCargaDistribution = async (req, res) => {
     });
   }
 };
- 
+
 // =====================================================
 // PATCH: Actualizar ubicación GPS
 // =====================================================
@@ -950,7 +1205,7 @@ ViajesController.completeTrip = async (req, res) => {
     });
   }
 };
- 
+
 // =====================================================
 // MÉTODOS ADICIONALES ÚTILES
 // =====================================================
@@ -1083,7 +1338,8 @@ ViajesController.getCargaDetailsByCategory = async (req, res) => {
           totalViajes: { $sum: 1 },
           pesoTotal: { $sum: "$carga.peso.valor" },
           pesoPromedio: { $avg: "$carga.peso.valor" },
-          valorTotal: { $sum: "$carga.valor.montoDeclarado" },
+          valorTotal: { $sum
+          : "$carga.valor.montoDeclarado" },
           completados: {
             $sum: { $cond: [{ $eq: ["$estado.actual", "completado"] }, 1, 0] }
           },
@@ -1434,11 +1690,6 @@ ViajesController.getRealTimeMetrics = async (req, res) => {
     });
   }
 };
- 
- 
-// Agregar este método a tu Controllers/Viajes.js
- 
-// Agregar este método a tu Controllers/Viajes.js
  
 // =====================================================
 // 🚛 MÉTODO PRINCIPAL: OBTENER VIAJES POR DÍAS CON DATOS DE EJEMPLO
@@ -1888,8 +2139,6 @@ ViajesController.debugEstados = async (req, res) => {
   }
 };
  
-// Al final de tu Controllers/Viajes.js, ANTES de export default ViajesController;
- 
 // ⏰ MÉTODO: Tiempo promedio de viaje (CORREGIDO PARA STRINGS)
 ViajesController.getTiempoPromedioViaje = async (req, res) => {
   try {
@@ -2133,6 +2382,4 @@ ViajesController.getCapacidadCarga = async (req, res) => {
 };
  
 // 🔚 AL FINAL DEL ARCHIVO, ASEGÚRATE DE QUE ESTA LÍNEA ESTÉ AL FINAL:
- 
- 
 export default ViajesController;

@@ -1,6 +1,6 @@
 // FormsTravels/ProgramTripModal.jsx
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, MapPin, Truck, User, Package, Calendar, Clock, DollarSign } from 'lucide-react';
+import { ArrowLeft, MapPin, Truck, User, Package, Calendar, Clock, DollarSign, AlertCircle } from 'lucide-react';
 
 const ProgramTripModal = ({ 
   show, 
@@ -13,7 +13,9 @@ const ProgramTripModal = ({
   const [camiones, setCamiones] = useState([]);
   const [conductores, setConductores] = useState([]);
   const [cotizaciones, setCotizaciones] = useState([]);
+  const [cotizacionSeleccionada, setCotizacionSeleccionada] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   // Cargar datos al abrir el modal
   useEffect(() => {
@@ -22,35 +24,228 @@ const ProgramTripModal = ({
     }
   }, [show]);
 
+  // 🔄 EFECTO PARA CARGAR COTIZACIÓN SELECCIONADA
+  useEffect(() => {
+    if (programForm.quoteId && cotizaciones.length > 0) {
+      const cotizacion = cotizaciones.find(c => c._id === programForm.quoteId);
+      if (cotizacion) {
+        setCotizacionSeleccionada(cotizacion);
+        llenarDatosDesdeCotizacion(cotizacion);
+      }
+    }
+  }, [programForm.quoteId, cotizaciones]);
+
   const cargarRecursos = async () => {
     setLoading(true);
+    setError(null);
+    
     try {
-      // Cargar camiones, conductores y cotizaciones
-      const [camionesRes, conductoresRes, cotizacionesRes] = await Promise.all([
-        fetch('/api/camiones'),
-        fetch('/api/motoristas'),
-        fetch('/api/cotizaciones') // Ajusta esta ruta según tu API
-      ]);
+      console.log('🔄 Iniciando carga de recursos...');
 
-      if (camionesRes.ok) {
-        const camionesData = await camionesRes.json();
-        setCamiones(camionesData.data || camionesData);
+      // 🚛 CARGAR CAMIONES
+      try {
+        console.log('📦 Cargando camiones...');
+        const camionesRes = await fetch('/api/camiones');
+        console.log('📦 Respuesta camiones:', camionesRes.status);
+        
+        if (camionesRes.ok) {
+          const camionesText = await camionesRes.text();
+          console.log('📦 Texto respuesta camiones:', camionesText.substring(0, 200));
+          
+          const camionesData = JSON.parse(camionesText);
+          const camionesArray = camionesData.data || camionesData || [];
+          setCamiones(Array.isArray(camionesArray) ? camionesArray : []);
+          console.log('✅ Camiones cargados:', camionesArray.length);
+        } else {
+          console.warn('⚠️ Error cargando camiones:', camionesRes.status);
+        }
+      } catch (camionesError) {
+        console.error('❌ Error específico con camiones:', camionesError);
       }
 
-      if (conductoresRes.ok) {
-        const conductoresData = await conductoresRes.json();
-        setConductores(conductoresData.data || conductoresData);
+      // 👤 CARGAR CONDUCTORES  
+      try {
+        console.log('👤 Cargando conductores...');
+        const conductoresRes = await fetch('/api/motoristas');
+        console.log('👤 Respuesta conductores:', conductoresRes.status);
+        
+        if (conductoresRes.ok) {
+          const conductoresText = await conductoresRes.text();
+          console.log('👤 Texto respuesta conductores:', conductoresText.substring(0, 200));
+          
+          const conductoresData = JSON.parse(conductoresText);
+          const conductoresArray = conductoresData.data || conductoresData || [];
+          setConductores(Array.isArray(conductoresArray) ? conductoresArray : []);
+          console.log('✅ Conductores cargados:', conductoresArray.length);
+        } else {
+          console.warn('⚠️ Error cargando conductores:', conductoresRes.status);
+        }
+      } catch (conductoresError) {
+        console.error('❌ Error específico con conductores:', conductoresError);
       }
 
-      if (cotizacionesRes.ok) {
-        const cotizacionesData = await cotizacionesRes.json();
-        setCotizaciones(cotizacionesData.data || cotizacionesData);
+      // 📋 CARGAR COTIZACIONES
+      try {
+        console.log('📋 Cargando cotizaciones...');
+        
+        // Intentar diferentes rutas posibles
+        const rutasPosibles = [
+          '/api/cotizaciones',
+          '/api/quotes', 
+          '/api/quotations',
+          '/api/viajes/cotizaciones'
+        ];
+
+        let cotizacionesData = null;
+        let rutaExitosa = null;
+
+        for (const ruta of rutasPosibles) {
+          try {
+            console.log(`📋 Intentando ruta: ${ruta}`);
+            const cotizacionesRes = await fetch(ruta);
+            console.log(`📋 Respuesta ${ruta}:`, cotizacionesRes.status);
+            
+            if (cotizacionesRes.ok) {
+              const cotizacionesText = await cotizacionesRes.text();
+              console.log(`📋 Texto respuesta ${ruta}:`, cotizacionesText.substring(0, 200));
+              
+              cotizacionesData = JSON.parse(cotizacionesText);
+              rutaExitosa = ruta;
+              break;
+            }
+          } catch (err) {
+            console.log(`❌ Falló ruta ${ruta}:`, err.message);
+          }
+        }
+
+        if (cotizacionesData && rutaExitosa) {
+          const cotizacionesArray = cotizacionesData.data || cotizacionesData || [];
+          // Filtrar solo cotizaciones aceptadas que no estén ejecutadas
+          const cotizacionesDisponibles = Array.isArray(cotizacionesArray) 
+            ? cotizacionesArray.filter(c => 
+                c.status === 'aceptada' || 
+                c.status === 'pendiente' || 
+                c.status === 'enviada'
+              )
+            : [];
+          
+          setCotizaciones(cotizacionesDisponibles);
+          console.log('✅ Cotizaciones cargadas desde:', rutaExitosa, 'Total:', cotizacionesDisponibles.length);
+        } else {
+          console.warn('⚠️ No se pudieron cargar cotizaciones desde ninguna ruta');
+          setCotizaciones([]);
+        }
+      } catch (cotizacionesError) {
+        console.error('❌ Error específico con cotizaciones:', cotizacionesError);
+        setCotizaciones([]);
       }
+
     } catch (error) {
-      console.error('Error cargando recursos:', error);
+      console.error('❌ Error general cargando recursos:', error);
+      setError('Error cargando recursos. Verifique la conexión con el servidor.');
     } finally {
       setLoading(false);
     }
+  };
+
+  // 🎯 FUNCIÓN PARA LLENAR DATOS DESDE COTIZACIÓN
+  const llenarDatosDesdeCotizacion = (cotizacion) => {
+    console.log('🔄 Llenando datos desde cotización:', cotizacion);
+
+    try {
+      // 📝 Descripción del viaje
+      if (cotizacion.quoteDescription) {
+        onInputChange('tripDescription', cotizacion.quoteDescription);
+      }
+
+      // 📍 ORIGEN - desde cotizacion.ruta.origen
+      if (cotizacion.ruta?.origen) {
+        const origen = {
+          nombre: cotizacion.ruta.origen.nombre || '',
+          lat: cotizacion.ruta.origen.coordenadas?.lat || '',
+          lng: cotizacion.ruta.origen.coordenadas?.lng || '',
+          tipo: cotizacion.ruta.origen.tipo || 'ciudad'
+        };
+        onInputChange('origen', origen);
+      }
+
+      // 🎯 DESTINO - desde cotizacion.ruta.destino
+      if (cotizacion.ruta?.destino) {
+        const destino = {
+          nombre: cotizacion.ruta.destino.nombre || '',
+          lat: cotizacion.ruta.destino.coordenadas?.lat || '',
+          lng: cotizacion.ruta.destino.coordenadas?.lng || '',
+          tipo: cotizacion.ruta.destino.tipo || 'ciudad'
+        };
+        onInputChange('destino', destino);
+      }
+
+      // ⏰ HORARIOS - desde cotización.horarios
+      if (cotizacion.horarios?.fechaSalida) {
+        const fechaSalida = new Date(cotizacion.horarios.fechaSalida);
+        onInputChange('departureTime', fechaSalida.toISOString().slice(0, 16));
+      }
+
+      if (cotizacion.horarios?.fechaLlegadaEstimada) {
+        const fechaLlegada = new Date(cotizacion.horarios.fechaLlegadaEstimada);
+        onInputChange('arrivalTime', fechaLlegada.toISOString().slice(0, 16));
+      }
+
+      // 📦 CARGA - desde cotización.carga
+      if (cotizacion.carga) {
+        const carga = {
+          descripcion: cotizacion.carga.descripcion || '',
+          categoria: cotizacion.carga.categoria || 'general',
+          peso: {
+            valor: cotizacion.carga.peso?.valor || '',
+            unidad: cotizacion.carga.peso?.unidad || 'kg'
+          },
+          clasificacionRiesgo: cotizacion.carga.clasificacionRiesgo || 'normal',
+          valorDeclarado: {
+            monto: cotizacion.carga.valorDeclarado?.monto || '',
+            moneda: cotizacion.carga.valorDeclarado?.moneda || 'USD'
+          }
+        };
+        onInputChange('carga', carga);
+      }
+
+      // 📝 OBSERVACIONES - desde cotización.observaciones
+      if (cotizacion.observaciones) {
+        onInputChange('observaciones', cotizacion.observaciones);
+      }
+
+      console.log('✅ Datos llenados desde cotización exitosamente');
+    } catch (error) {
+      console.error('❌ Error llenando datos desde cotización:', error);
+    }
+  };
+
+  // 🔄 MANEJAR CAMBIO DE COTIZACIÓN
+  const handleCotizacionChange = (cotizacionId) => {
+    onInputChange('quoteId', cotizacionId);
+    
+    if (cotizacionId) {
+      const cotizacion = cotizaciones.find(c => c._id === cotizacionId);
+      if (cotizacion) {
+        setCotizacionSeleccionada(cotizacion);
+        llenarDatosDesdeCotizacion(cotizacion);
+      }
+    } else {
+      setCotizacionSeleccionada(null);
+      // Limpiar formulario si se deselecciona la cotización
+      limpiarFormulario();
+    }
+  };
+
+  // 🧹 FUNCIÓN PARA LIMPIAR FORMULARIO
+  const limpiarFormulario = () => {
+    onInputChange('tripDescription', '');
+    onInputChange('origen', {});
+    onInputChange('destino', {});
+    onInputChange('departureTime', '');
+    onInputChange('arrivalTime', '');
+    onInputChange('carga', {});
+    onInputChange('observaciones', '');
   };
 
   const categoriasCarga = [
@@ -64,14 +259,16 @@ const ProgramTripModal = ({
     { value: 'medicamentos', label: 'Medicamentos' },
     { value: 'vehiculos', label: 'Vehículos' },
     { value: 'productos_agricolas', label: 'Productos Agrícolas' },
-    { value: 'general', label: 'Carga General' }
+    { value: 'general', label: 'Carga General' },
+    { value: 'otros', label: 'Otros' }
   ];
 
   const nivelesRiesgo = [
     { value: 'normal', label: 'Normal' },
     { value: 'fragil', label: 'Frágil' },
     { value: 'peligroso', label: 'Peligroso' },
-    { value: 'especial', label: 'Manejo Especial' }
+    { value: 'perecedero', label: 'Perecedero' },
+    { value: 'biologico', label: 'Biológico' }
   ];
 
   const prioridades = [
@@ -123,11 +320,32 @@ const ProgramTripModal = ({
           </div>
         </div>
 
+        {/* Mensaje de carga */}
         {loading && (
-          <div className="text-center text-gray-600 mb-4">
+          <div className="text-center text-blue-600 mb-4 p-4 bg-blue-50 rounded-lg">
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto mb-2"></div>
             Cargando recursos disponibles...
           </div>
         )}
+
+        {/* Mensaje de error */}
+        {error && (
+          <div className="text-center text-red-600 mb-4 p-4 bg-red-50 rounded-lg border border-red-200 flex items-center">
+            <AlertCircle className="mr-2" size={20} />
+            {error}
+            <button 
+              onClick={cargarRecursos}
+              className="ml-4 px-3 py-1 bg-red-600 text-white rounded text-sm hover:bg-red-700"
+            >
+              Reintentar
+            </button>
+          </div>
+        )}
+
+        {/* Información de debug */}
+        <div className="text-xs text-gray-500 mb-4 p-2 bg-gray-50 rounded">
+          📊 Estado: Camiones: {camiones.length} | Conductores: {conductores.length} | Cotizaciones: {cotizaciones.length}
+        </div>
 
         <form className="space-y-8">
           {/* SECCIÓN 1: INFORMACIÓN BÁSICA */}
@@ -139,37 +357,41 @@ const ProgramTripModal = ({
             
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {/* Cotización */}
-              <div>
+              <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Cotización (Opcional)
+                  Cotización (Auto-llena el formulario) 
+                  <span className="text-blue-600 text-xs ml-1">✨ Recomendado</span>
                 </label>
                 <select
                   value={programForm.quoteId || ''}
-                  onChange={(e) => onInputChange('quoteId', e.target.value)}
+                  onChange={(e) => handleCotizacionChange(e.target.value)}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  disabled={loading}
                 >
-                  <option value="">Seleccionar cotización</option>
+                  <option value="">🔄 Seleccionar cotización para auto-llenar</option>
+                  {cotizaciones.length === 0 && !loading && (
+                    <option value="" disabled>No hay cotizaciones disponibles</option>
+                  )}
                   {cotizaciones.map((cotizacion) => (
                     <option key={cotizacion._id} value={cotizacion._id}>
-                      {cotizacion.quoteName || `Cotización ${cotizacion._id.slice(-6)}`}
+                      📋 {cotizacion.quoteName || `Cotización ${cotizacion._id.slice(-6)}`} 
+                      {cotizacion.ruta && ` - ${cotizacion.ruta.origen?.nombre} → ${cotizacion.ruta.destino?.nombre}`}
+                      {cotizacion.price && ` ($${cotizacion.price})`}
                     </option>
                   ))}
                 </select>
-              </div>
-
-              {/* Descripción del viaje */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Descripción del viaje *
-                </label>
-                <input
-                  type="text"
-                  value={programForm.tripDescription || ''}
-                  onChange={(e) => onInputChange('tripDescription', e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Ej: Entrega de productos electrónicos"
-                  required
-                />
+                
+                {/* Información de la cotización seleccionada */}
+                {cotizacionSeleccionada && (
+                  <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <div className="text-sm text-blue-800">
+                      <p><strong>Cliente:</strong> {cotizacionSeleccionada.clientId?.nombre || 'No especificado'}</p>
+                      <p><strong>Ruta:</strong> {cotizacionSeleccionada.ruta?.origen?.nombre} → {cotizacionSeleccionada.ruta?.destino?.nombre}</p>
+                      <p><strong>Carga:</strong> {cotizacionSeleccionada.carga?.descripcion}</p>
+                      <p><strong>Precio:</strong> ${cotizacionSeleccionada.price} {cotizacionSeleccionada.costos?.moneda || 'USD'}</p>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Prioridad */}
@@ -189,14 +411,32 @@ const ProgramTripModal = ({
                   ))}
                 </select>
               </div>
+
+              {/* Descripción del viaje */}
+              <div className="md:col-span-3">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Descripción del viaje *
+                  {cotizacionSeleccionada && <span className="text-green-600 text-xs ml-1">✅ Auto-llenado</span>}
+                </label>
+                <input
+                  type="text"
+                  value={programForm.tripDescription || ''}
+                  onChange={(e) => onInputChange('tripDescription', e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Ej: Entrega de productos electrónicos"
+                  required
+                />
+              </div>
             </div>
           </div>
 
+          {/* Resto de las secciones permanecen igual... */}
           {/* SECCIÓN 2: UBICACIONES */}
           <div className="bg-blue-50 p-6 rounded-xl">
             <h2 className="text-xl font-semibold text-gray-800 mb-6 flex items-center">
               <MapPin className="mr-2" size={20} />
               Ubicaciones de Origen y Destino
+              {cotizacionSeleccionada && <span className="text-green-600 text-sm ml-2">✅ Auto-llenado desde cotización</span>}
             </h2>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -243,8 +483,8 @@ const ProgramTripModal = ({
                     <option value="ciudad">Ciudad</option>
                     <option value="terminal">Terminal</option>
                     <option value="puerto">Puerto</option>
-                    <option value="almacen">Almacén</option>
-                    <option value="fabrica">Fábrica</option>
+                    <option value="bodega">Bodega</option>
+                    <option value="cliente">Cliente</option>
                   </select>
                 </div>
               </div>
@@ -292,8 +532,8 @@ const ProgramTripModal = ({
                     <option value="ciudad">Ciudad</option>
                     <option value="terminal">Terminal</option>
                     <option value="puerto">Puerto</option>
-                    <option value="almacen">Almacén</option>
-                    <option value="fabrica">Fábrica</option>
+                    <option value="bodega">Bodega</option>
+                    <option value="cliente">Cliente</option>
                   </select>
                 </div>
               </div>
@@ -305,6 +545,7 @@ const ProgramTripModal = ({
             <h2 className="text-xl font-semibold text-gray-800 mb-6 flex items-center">
               <Clock className="mr-2" size={20} />
               Programación de Horarios
+              {cotizacionSeleccionada && <span className="text-green-600 text-sm ml-2">✅ Auto-llenado desde cotización</span>}
             </h2>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -325,13 +566,14 @@ const ProgramTripModal = ({
               {/* Fecha y hora de llegada estimada */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Fecha y hora de llegada estimada
+                  Fecha y hora de llegada estimada *
                 </label>
                 <input
                   type="datetime-local"
                   value={programForm.arrivalTime || ''}
                   onChange={(e) => onInputChange('arrivalTime', e.target.value)}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
                 />
               </div>
             </div>
@@ -348,17 +590,23 @@ const ProgramTripModal = ({
               {/* Camión */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Camión
+                  Camión *
                 </label>
                 <select
                   value={programForm.truckId || ''}
                   onChange={(e) => onInputChange('truckId', e.target.value)}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                  disabled={loading}
                 >
                   <option value="">Seleccionar camión</option>
+                  {camiones.length === 0 && !loading && (
+                    <option value="" disabled>No hay camiones disponibles</option>
+                  )}
                   {camiones.map((camion) => (
                     <option key={camion._id} value={camion._id}>
-                      {camion.brand} {camion.model} - {camion.licensePlate}
+                      🚛 {camion.brand} {camion.model} - {camion.licensePlate}
+                      {camion.state && ` (${camion.state})`}
                     </option>
                   ))}
                 </select>
@@ -367,17 +615,22 @@ const ProgramTripModal = ({
               {/* Conductor */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Conductor
+                  Conductor *
                 </label>
                 <select
                   value={programForm.conductorId || ''}
                   onChange={(e) => onInputChange('conductorId', e.target.value)}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                  disabled={loading}
                 >
                   <option value="">Seleccionar conductor</option>
+                  {conductores.length === 0 && !loading && (
+                    <option value="" disabled>No hay conductores disponibles</option>
+                  )}
                   {conductores.map((conductor) => (
                     <option key={conductor._id} value={conductor._id}>
-                      {conductor.name || conductor.nombre} - {conductor.phone || conductor.telefono}
+                      👤 {conductor.name || conductor.nombre} - {conductor.phone || conductor.telefono}
                     </option>
                   ))}
                 </select>
@@ -390,6 +643,7 @@ const ProgramTripModal = ({
             <h2 className="text-xl font-semibold text-gray-800 mb-6 flex items-center">
               <Package className="mr-2" size={20} />
               Información de la Carga
+              {cotizacionSeleccionada && <span className="text-green-600 text-sm ml-2">✅ Auto-llenado desde cotización</span>}
             </h2>
             
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -442,7 +696,7 @@ const ProgramTripModal = ({
                   value={programForm.carga?.peso?.valor || ''}
                   onChange={(e) => onInputChange('carga', { 
                     ...programForm.carga, 
-                    peso: { valor: parseFloat(e.target.value), unidad: 'kg' }
+                    peso: { valor: parseFloat(e.target.value) || '', unidad: 'kg' }
                   })}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="Peso en kilogramos"
@@ -480,7 +734,7 @@ const ProgramTripModal = ({
                   value={programForm.carga?.valorDeclarado?.monto || ''}
                   onChange={(e) => onInputChange('carga', { 
                     ...programForm.carga, 
-                    valorDeclarado: { monto: parseFloat(e.target.value), moneda: 'USD' }
+                    valorDeclarado: { monto: parseFloat(e.target.value) || '', moneda: 'USD' }
                   })}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="Valor en dólares"
@@ -493,6 +747,7 @@ const ProgramTripModal = ({
           <div className="bg-gray-50 p-6 rounded-xl">
             <h2 className="text-xl font-semibold text-gray-800 mb-6">
               📝 Observaciones Adicionales
+              {cotizacionSeleccionada && <span className="text-green-600 text-sm ml-2">✅ Auto-llenado desde cotización</span>}
             </h2>
             
             <textarea
@@ -503,6 +758,87 @@ const ProgramTripModal = ({
               placeholder="Notas adicionales, instrucciones especiales, etc."
             />
           </div>
+
+          {/* SECCIÓN 7: RESUMEN DE COTIZACIÓN (Solo si hay cotización seleccionada) */}
+          {cotizacionSeleccionada && (
+            <div className="bg-green-100 border-2 border-green-300 p-6 rounded-xl">
+              <h2 className="text-xl font-semibold text-green-800 mb-4 flex items-center">
+                <DollarSign className="mr-2" size={20} />
+                📋 Resumen de Cotización Seleccionada
+              </h2>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
+                <div className="bg-white p-3 rounded-lg border border-green-200">
+                  <p className="font-semibold text-green-700">Cliente:</p>
+                  <p className="text-gray-700">{cotizacionSeleccionada.clientId?.nombre || 'No especificado'}</p>
+                </div>
+                
+                <div className="bg-white p-3 rounded-lg border border-green-200">
+                  <p className="font-semibold text-green-700">Precio Total:</p>
+                  <p className="text-gray-700 text-lg font-bold">
+                    ${cotizacionSeleccionada.price} {cotizacionSeleccionada.costos?.moneda || 'USD'}
+                  </p>
+                </div>
+                
+                <div className="bg-white p-3 rounded-lg border border-green-200">
+                  <p className="font-semibold text-green-700">Distancia:</p>
+                  <p className="text-gray-700">
+                    {cotizacionSeleccionada.ruta?.distanciaTotal ? `${cotizacionSeleccionada.ruta.distanciaTotal} km` : 'No especificado'}
+                  </p>
+                </div>
+                
+                <div className="bg-white p-3 rounded-lg border border-green-200">
+                  <p className="font-semibold text-green-700">Tiempo Estimado:</p>
+                  <p className="text-gray-700">
+                    {cotizacionSeleccionada.ruta?.tiempoEstimado ? `${cotizacionSeleccionada.ruta.tiempoEstimado} horas` : 'No especificado'}
+                  </p>
+                </div>
+                
+                <div className="bg-white p-3 rounded-lg border border-green-200">
+                  <p className="font-semibold text-green-700">Tipo de Carga:</p>
+                  <p className="text-gray-700">{cotizacionSeleccionada.truckType || 'No especificado'}</p>
+                </div>
+                
+                <div className="bg-white p-3 rounded-lg border border-green-200">
+                  <p className="font-semibold text-green-700">Estado:</p>
+                  <p className="text-gray-700 capitalize">
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                      cotizacionSeleccionada.status === 'aceptada' ? 'bg-green-200 text-green-800' :
+                      cotizacionSeleccionada.status === 'pendiente' ? 'bg-yellow-200 text-yellow-800' :
+                      'bg-gray-200 text-gray-800'
+                    }`}>
+                      {cotizacionSeleccionada.status}
+                    </span>
+                  </p>
+                </div>
+              </div>
+              
+              {/* Desglose de costos si está disponible */}
+              {cotizacionSeleccionada.costos && (
+                <div className="mt-4">
+                  <h3 className="font-semibold text-green-700 mb-2">💰 Desglose de Costos:</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                    <div className="bg-white p-2 rounded border border-green-200">
+                      <p className="font-medium">Combustible:</p>
+                      <p>${cotizacionSeleccionada.costos.combustible || 0}</p>
+                    </div>
+                    <div className="bg-white p-2 rounded border border-green-200">
+                      <p className="font-medium">Peajes:</p>
+                      <p>${cotizacionSeleccionada.costos.peajes || 0}</p>
+                    </div>
+                    <div className="bg-white p-2 rounded border border-green-200">
+                      <p className="font-medium">Conductor:</p>
+                      <p>${cotizacionSeleccionada.costos.conductor || 0}</p>
+                    </div>
+                    <div className="bg-white p-2 rounded border border-green-200">
+                      <p className="font-medium">Otros:</p>
+                      <p>${cotizacionSeleccionada.costos.otros || 0}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Botones de acción */}
           <div className="flex justify-center space-x-4 pt-6">
@@ -525,7 +861,10 @@ const ProgramTripModal = ({
                   Guardando...
                 </>
               ) : (
-                'Programar Viaje'
+                <>
+                  🚛 Programar Viaje
+                  {cotizacionSeleccionada && <span className="ml-2 text-xs">(Desde Cotización)</span>}
+                </>
               )}
             </button>
           </div>
