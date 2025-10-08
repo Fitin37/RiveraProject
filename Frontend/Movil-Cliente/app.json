@@ -1,61 +1,12 @@
 {
   "expo": {
-    "name": "movil-cliente",
-    "slug": "movil-cliente",
-    "version": "1.0.0",
-    "orientation": "portrait",
-    "icon": "./src/assets/icon.png",
-    "userInterfaceStyle": "light",
-    "newArchEnabled": true,
-    "scheme": "movilcliente",
-    "splash": {
-      "image": "./src/assets/icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
-    "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.movilcliente.app",
-      "infoPlist": {
-        "NSCameraUsageDescription": "Esta app necesita acceso a la cámara para tomar fotos de perfil.",
-        "NSPhotoLibraryUsageDescription": "Esta app necesita acceso a la galería para seleccionar fotos de perfil.",
-        "NSLocationWhenInUseUsageDescription": "Esta app necesita acceso a tu ubicación para mostrar el clima de tu zona específica."
+    "extra": {
+      "eas": {
+        "projectId": "21c947ad-11fa-4fc0-a1d4-e0721a2676cf"
       }
     },
     "android": {
-      "adaptiveIcon": {
-        "foregroundImage": "./src/assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
-      },
-      "permissions": [
-        "android.permission.CAMERA",
-        "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.WRITE_EXTERNAL_STORAGE",
-        "android.permission.READ_MEDIA_IMAGES",
-        "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.ACCESS_COARSE_LOCATION"
-      ],
-      "edgeToEdgeEnabled": true,
-      "package": "com.movilcliente.app"
-    },
-    "web": {
-      "favicon": "./src/assets/favicon.png"
-    },
-    "plugins": [
-      "expo-web-browser",
-      [
-        "expo-image-picker",
-        {
-          "photosPermission": "Esta app necesita acceso a la galería para seleccionar fotos de perfil.",
-          "cameraPermission": "Esta app necesita acceso a la cámara para tomar fotos de perfil."
-        }
-      ]
-    ],
-    "extra": {
-      "googleClientId": "1035488574954-2agjnnugu7d1lnhen68e6n06lvfdip3u.apps.googleusercontent.com",
-      "eas": {
-        "projectId": "b3d7872f-24ff-40b1-a103-a7ec47686323"
-      }
+      "package": "com.kenik_capibara.movilcliente"
     }
   }
 }
